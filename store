@@ -1,0 +1,157 @@
+# import pandas as pd
+# import matplotlib.pyplot as plt
+
+# # =========================
+# # Step 1: Load Excel Dataset
+# # =========================
+# df = pd.read_excel("nigeria_grid_dataset.xlsx")
+# # =========================
+# =========================
+# Step 2: Calculate Deficit
+# =========================
+/
+
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+# =========================
+# Create results folder
+# =========================
+if not os.path.exists("results"):
+    os.makedirs("results")
+
+# =========================
+# Step 1: Load Dataset
+# =========================
+df = pd.read_excel("nigeria_grid_dataset.xlsx")
+
+# =========================
+# Step 2: Simulation Setup
+# =========================
+hours = 24
+results = []
+
+# =========================
+# Step 3: Time Simulation
+# =========================
+for hour in range(hours):
+
+    temp_df = df.copy()
+
+    # Simulate demand variation (60% - 100%)
+    temp_df["Demand_MW"] = temp_df["Peak_Demand_MW"] * np.random.uniform(0.6, 1.0, len(df))
+
+    total_demand = temp_df["Demand_MW"].sum()
+    total_supply = 4000  # constant supply
+
+    deficit = max(total_demand - total_supply, 0)
+
+    # =========================
+    # Strategy A: Proportional
+    # =========================
+    if deficit > 0:
+        temp_df["Shed_A"] = (temp_df["Demand_MW"] / total_demand) * deficit
+    else:
+        temp_df["Shed_A"] = 0
+
+    # =========================
+    # Strategy B: Protect Critical Load
+    # =========================
+    temp_df["Available"] = temp_df["Demand_MW"] - temp_df["Critical_Load_MW"]
+    temp_df["Available"] = temp_df["Available"].apply(lambda x: max(x, 0))
+
+    total_available = temp_df["Available"].sum()
+
+    if deficit > 0 and total_available > 0:
+        temp_df["Shed_B"] = (temp_df["Available"] / total_available) * deficit
+    else:
+        temp_df["Shed_B"] = 0
+
+    # =========================
+    # Strategy C: Priority Regions
+    # =========================
+    priority = ["South West", "South South"]
+
+    temp_df["Shed_C"] = 0.0
+
+    non_priority = temp_df[~temp_df["Region"].isin(priority)]
+    priority_df = temp_df[temp_df["Region"].isin(priority)]
+
+    if deficit > 0:
+
+        if non_priority["Demand_MW"].sum() > 0:
+            temp_df.loc[non_priority.index, "Shed_C"] = (
+                0.7 * deficit *
+                (non_priority["Demand_MW"] / non_priority["Demand_MW"].sum())
+            )
+
+        if priority_df["Demand_MW"].sum() > 0:
+            temp_df.loc[priority_df.index, "Shed_C"] = (
+                0.3 * deficit *
+                (priority_df["Demand_MW"] / priority_df["Demand_MW"].sum())
+            )
+
+    # =========================
+    # Store results per hour
+    # =========================
+    results.append({
+        "Hour": hour,
+        "Total_Demand": total_demand,
+        "Deficit": deficit,
+        "Shed_A": temp_df["Shed_A"].sum(),
+        "Shed_B": temp_df["Shed_B"].sum(),
+        "Shed_C": temp_df["Shed_C"].sum()
+    })
+
+# =========================
+# Step 4: Convert results
+# =========================
+results_df = pd.DataFrame(results)
+
+# =========================
+# Step 5: Performance Metrics
+# =========================
+total_A = results_df["Shed_A"].sum()
+total_B = results_df["Shed_B"].sum()
+total_C = results_df["Shed_C"].sum()
+
+print("\n=== TOTAL LOAD SHED (24 hrs) ===")
+print(f"Strategy A: {total_A:.2f}")
+print(f"Strategy B: {total_B:.2f}")
+print(f"Strategy C: {total_C:.2f}")
+
+# =========================
+# Step 6: Optimization
+# =========================
+best = min(total_A, total_B, total_C)
+
+if best == total_A:
+    best_strategy = "Strategy A (Proportional)"
+elif best == total_B:
+    best_strategy = "Strategy B (Critical Protection)"
+else:
+    best_strategy = "Strategy C (Priority Regions)"
+
+print(f"\nBest Strategy: {best_strategy}")
+
+# =========================
+# Step 7: Plot Results
+# =========================
+results_df.plot(x="Hour", y=["Shed_A", "Shed_B", "Shed_C"], figsize=(10,6))
+
+plt.title("Load Shedding Over 24 Hours")
+plt.ylabel("Shed Load (MW)")
+plt.xlabel("Hour")
+plt.grid()
+plt.show()
+
+# =========================
+# Step 8: Save Results
+# =========================
+results_df.to_excel("results/optimized_simulation.xlsx", index=False)
+
+print("\nResults saved to results/optimized_simulation.xlsx")
